@@ -1109,6 +1109,13 @@ pub fn location_offers_instance_type(
     location_type: &str,
     instance_type: &str,
 ) -> bool {
+    // OnCallWorlds patch: upstream withholds every current-generation type from a Region's
+    // last zone. A seeded account runs the fleet its world describes in all three zones, so
+    // in a seeded process every zone offers every type (a capacity shortfall is a seeded
+    // Auto Scaling activity instead).
+    if ocw_clock::seeded() {
+        return true;
+    }
     if unoffering_location(region, location_type).as_deref() != Some(location) {
         return true;
     }

@@ -168,7 +168,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = ctx;
         // Implement `AttachInstances` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(AttachInstancesErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -178,6 +178,103 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("AttachInstances"))
+        // OnCallWorlds patch: implemented (attach running instances; desired += n).
+        ocw_attach_instances(&*self.engine, input)
     }
+}
+
+/// OnCallWorlds patch: `AttachInstances` (was a 501). Each named instance must be one of the
+/// account's running EC2 instances; it joins the group `InService` and `Healthy`, the
+/// group's desired capacity grows by the number attached (refused past `MaxSize`), and the
+/// group records the attachment as a successful activity.
+fn ocw_attach_instances<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    input: AttachInstancesInput,
+) -> Result<AttachInstancesOutput, AttachInstancesError> {
+    use crate::scaffolded::Scaffolded;
+    let ids = input.instance_ids.unwrap_or_default();
+    let name = input.auto_scaling_group_name;
+    let Some(state) = crate::state::service_state(engine) else {
+        return Err(Scaffolded::validation("the Auto Scaling store is not mounted on this engine"));
+    };
+    let ec2_state = ::service_com_amazonaws_ec2_amazonec2::state::service_state(engine);
+    let mut found = Vec::new();
+    {
+        let ec2 = ec2_state.as_ref().map(|s| s.lock());
+        for id in &ids {
+            let record = ec2.as_ref().and_then(|store| store.instances.get(id));
+            match record {
+                Some(record) if record.state.as_str() == "running" => found.push((
+                    id.clone(),
+                    record.placement_az.clone(),
+                    record.instance_type.clone(),
+                    record.image_id.clone(),
+                )),
+                _ => {
+                    return Err(Scaffolded::validation(format!(
+                        "Instance {id} is not in correct state."
+                    )))
+                }
+            }
+        }
+    }
+    let now = ::std::time::SystemTime::now();
+    let mut store = state.lock();
+    let Some(group) = store.groups.get_mut(&name) else {
+        return Err(Scaffolded::validation(format!(
+            "AutoScalingGroup name not found - AutoScalingGroup {name} not found"
+        )));
+    };
+    let before = group.desired_capacity;
+    let after = before + found.len() as i32;
+    if after > group.max_size {
+        return Err(Scaffolded::validation(format!(
+            "Desired capacity:{after} must be between the specified min size:{} and max size:{}",
+            group.min_size, group.max_size
+        )));
+    }
+    let attached: Vec<String> = found.iter().map(|f| f.0.clone()).collect();
+    for (instance_id, zone, instance_type, image_id) in found {
+        if group.instances.iter().any(|i| i.instance_id == instance_id) {
+            continue;
+        }
+        group.instances.push(crate::state::StoredInstance {
+            instance_id,
+            availability_zone: zone,
+            lifecycle_state: crate::state::LIFECYCLE_IN_SERVICE.to_string(),
+            health_status: crate::state::HEALTH_STATUS_HEALTHY.to_string(),
+            launch_configuration_name: None,
+            launch_template: None,
+            instance_type: Some(instance_type),
+            image_id,
+            protected_from_scale_in: false,
+            transition_due: None,
+        });
+    }
+    group.desired_capacity = after;
+    let arn = group.arn.clone();
+    let at = crate::state::to_date_time(now);
+    for id in attached {
+        store.record_activity(
+            &name,
+            &arn,
+            format!("Attaching an existing EC2 instance: {id}"),
+            format!(
+                "At {} a user request attached instance {id} to this group, increasing the \
+                 capacity from {before} to {after}.",
+                at.fmt(::aws_smithy_types::date_time::Format::DateTime)
+                    .unwrap_or_default()
+                    .split('.')
+                    .next()
+                    .unwrap_or_default()
+                    .trim_end_matches('Z')
+                    .to_string()
+                    + "Z"
+            ),
+            crate::state::GROUP_STATE_IN_SERVICE,
+            now,
+            None,
+        );
+    }
+    Ok(AttachInstancesOutput)
 }

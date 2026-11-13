@@ -17,6 +17,10 @@ impl ComAmazonawsEc2Amazonec2State {
     /// model's own id patterns read like `^vpc-([0-9a-f]{8}|[0-9a-f]{17})$`), so the
     /// suffix is 17 lowercase hex digits of the monotonic counter.
     pub fn next_id(&mut self, prefix: &str) -> String {
+        // OnCallWorlds patch: an id the seed pinned for this setup call.
+        if let Some(id) = ocw_clock::take_pinned(prefix.trim_end_matches('-')) {
+            return id;
+        }
         self.id_counter = self.id_counter.saturating_add(1);
         format!("{prefix}-{:017x}", self.id_counter)
     }

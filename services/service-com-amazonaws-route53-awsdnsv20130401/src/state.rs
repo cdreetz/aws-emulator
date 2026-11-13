@@ -3592,6 +3592,10 @@ impl IdMinter {
 
     /// `prefix` followed by `len` characters from [`IdMinter::ALPHABET`].
     fn mint(&mut self, prefix: char, len: usize) -> String {
+        // OnCallWorlds patch: an id the seed pinned for this setup call.
+        if let Some(id) = ocw_clock::take_pinned(prefix.encode_utf8(&mut [0; 4])) {
+            return id;
+        }
         let mut id = String::with_capacity(len + 1);
         id.push(prefix);
         for _ in 0..len {

@@ -4470,6 +4470,10 @@ impl ComAmazonawsElasticloadbalancingv2ElasticloadbalancingV10State {
     /// grows with the number of calls.
     pub fn mint_id(&mut self) -> String {
         use std::hash::{BuildHasher, Hasher};
+        // OnCallWorlds patch: an id the seed pinned for this setup call.
+        if let Some(id) = ocw_clock::take_pinned("elbv2") {
+            return id;
+        }
         loop {
             self.next_id = self.next_id.wrapping_add(1);
             let mut hasher = self.id_seed.build_hasher();

@@ -7,6 +7,7 @@ publish = false
 build = "build.rs"
 
 [dependencies]
+ocw-clock = { workspace = true }
 engine = { workspace = true }
 # `service-common` carries two readers this crate needs.
 # `arn`: the ONE parse of a caller-supplied resource ARN (the six fields, the vendor and

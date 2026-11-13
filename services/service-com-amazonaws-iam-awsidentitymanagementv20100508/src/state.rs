@@ -3765,6 +3765,10 @@ fn unique_id(prefix: &str, seq: u64) -> String {
 /// carry all 64 bits of the bijectively mixed counter, and every further word is
 /// keyed to its own position so no two positions repeat one word's characters.
 fn unique_id_of_length(prefix: &str, seq: u64, suffix_len: usize) -> String {
+    // OnCallWorlds patch: an id the seed pinned for this setup call.
+    if let Some(id) = ocw_clock::take_pinned(prefix) {
+        return id;
+    }
     // The same golden-ratio odd constant SplitMix64's step adds, used here to key each
     // word to the position it fills.
     const WORD_KEY: u64 = 0x9E37_79B9_7F4A_7C15;

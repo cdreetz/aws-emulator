@@ -12,6 +12,10 @@ use super::*;
 impl ComAmazonawsEc2Amazonec2State {
     /// A fresh, unused `r-` reservation id.
     pub fn mint_reservation_id(&mut self) -> String {
+        // OnCallWorlds patch: an id the seed pinned for this setup call.
+        if let Some(id) = ocw_clock::take_pinned("r") {
+            return id;
+        }
         self.next_reservation += 1;
         format!("r-{:017x}", self.next_reservation)
     }
@@ -24,6 +28,15 @@ impl ComAmazonawsEc2Amazonec2State {
     /// [`instance_id_is_well_formed`] reads, which is what lets an id outside them be
     /// answered as malformed rather than looked up.
     pub fn mint_instance_id(&mut self) -> String {
+        // OnCallWorlds patch: an id the seed pinned for this setup call.
+        if let Some(id) = ocw_clock::take_pinned("i") {
+            // Instance ids are read back against this counter (an id above it was never
+            // issued), so a pinned id moves it.
+            if let Some(n) = long_form_identifier(&id).and_then(|n| u64::try_from(n).ok()) {
+                self.next_instance = self.next_instance.max(n);
+            }
+            return id;
+        }
         self.next_instance += 1;
         format!("i-{:017x}", self.next_instance)
     }

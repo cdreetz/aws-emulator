@@ -193,8 +193,43 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
                 .collect(),
         };
 
+        // OnCallWorlds patch: a seeded verdict, with its reason, stands in for the probe's.
+        let descriptions =
+            ocw_seeded_health(&*self.engine, &input.target_group_arn, descriptions);
         Ok(DescribeTargetHealthOutput {
             target_health_descriptions: Some(descriptions),
         })
     }
+}
+
+/// OnCallWorlds patch: the health a seed stated for this group's targets
+/// (`ocw_clock::SeededTargetHealth`), over what the probe would report.
+fn ocw_seeded_health<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    target_group_arn: &str,
+    mut descriptions: Vec<TargetHealthDescription>,
+) -> Vec<TargetHealthDescription> {
+    let Some(engine) = (engine as &dyn ::std::any::Any).downcast_ref::<::engine::InMemoryEngine>()
+    else {
+        return descriptions;
+    };
+    let seeded = engine.state::<ocw_clock::SeededTargetHealth>();
+    let seeded = seeded.lock();
+    let Some(group) = seeded.by_group.get(target_group_arn) else {
+        return descriptions;
+    };
+    for description in &mut descriptions {
+        let Some(target) = &description.target else { continue };
+        let found = group
+            .get(&(target.id.clone(), target.port))
+            .or_else(|| group.get(&(target.id.clone(), None)));
+        if let Some(health) = found {
+            description.target_health = Some(TargetHealth {
+                state: Some(health.state.clone()),
+                reason: health.reason.clone(),
+                description: health.description.clone(),
+            });
+        }
+    }
+    descriptions
 }

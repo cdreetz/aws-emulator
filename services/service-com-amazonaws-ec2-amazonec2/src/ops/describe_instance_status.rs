@@ -179,7 +179,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = ctx;
         // Implement `DescribeInstanceStatus` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(DescribeInstanceStatusErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -189,6 +189,162 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("DescribeInstanceStatus"))
+        // OnCallWorlds patch: implemented. The status checks of every instance this store
+        // holds (running ones only, unless IncludeAllInstances), `ok` unless a seed stated
+        // otherwise (`ocw_clock::SeededInstanceStatus`).
+        ocw_describe_instance_status(&*self.engine, input)
     }
+}
+
+/// OnCallWorlds patch: `DescribeInstanceStatus` over the instances this store holds.
+///
+/// A running instance passes its reachability checks unless a seed stated otherwise
+/// (`ocw_clock::SeededInstanceStatus`); an instance that is not running is reported only
+/// with `IncludeAllInstances`, with checks `not-applicable`, as EC2 reports it.
+fn ocw_describe_instance_status<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    input: DescribeInstanceStatusInput,
+) -> Result<DescribeInstanceStatusOutput, DescribeInstanceStatusError> {
+    use crate::scaffolded::Scaffolded;
+    let Some(state) = crate::state::service_state(engine) else {
+        return Err(Scaffolded::not_implemented("DescribeInstanceStatus"));
+    };
+    if input.dry_run == Some(true) {
+        return Err(Scaffolded::dry_run_operation());
+    }
+    let seeded = (engine as &dyn ::std::any::Any)
+        .downcast_ref::<::engine::InMemoryEngine>()
+        .map(|e| e.state::<ocw_clock::SeededInstanceStatus>());
+    let seeded = seeded.as_ref().map(|s| s.lock());
+    let store = state.lock();
+    let include_all = input.include_all_instances.unwrap_or(false);
+    let named = input.instance_ids.clone().unwrap_or_default();
+    for id in &named {
+        if !store.instances.contains_key(id) {
+            return Err(Scaffolded::invalid_instance_id_not_found(id));
+        }
+    }
+    let filters = input.filters.clone().unwrap_or_default();
+    let mut ids: Vec<String> = if named.is_empty() {
+        store.instances.keys().cloned().collect()
+    } else {
+        named
+    };
+    ids.sort();
+    ids.dedup();
+    let time = |secs: f64| ::aws_smithy_types::DateTime::from_secs_f64(secs);
+    let summary = |status: &str, details: &[ocw_clock::StatusDetailSeed]| InstanceStatusSummary {
+        status: Some(status.to_string()),
+        details: Some(
+            details
+                .iter()
+                .map(|d| InstanceStatusDetails {
+                    impaired_since: d.impaired_since.map(time),
+                    name: Some(d.name.clone()),
+                    status: Some(d.status.clone()),
+                })
+                .collect(),
+        ),
+    };
+    let passed = vec![ocw_clock::StatusDetailSeed {
+        name: "reachability".to_string(),
+        status: "passed".to_string(),
+        impaired_since: None,
+    }];
+    let mut out = Vec::new();
+    for id in &ids {
+        let record = &store.instances[id];
+        let running = record.state.as_str() == "running";
+        if !running && !include_all {
+            continue;
+        }
+        let seed = seeded.as_ref().and_then(|s| s.by_instance.get(id.as_str())).cloned();
+        let seed = match (seed, running) {
+            (Some(seed), _) => seed,
+            (None, true) => ocw_clock::InstanceStatusSeed {
+                system_status: "ok".to_string(),
+                instance_status: "ok".to_string(),
+                system_details: passed.clone(),
+                instance_details: passed.clone(),
+                events: Vec::new(),
+            },
+            (None, false) => ocw_clock::InstanceStatusSeed {
+                system_status: "not-applicable".to_string(),
+                instance_status: "not-applicable".to_string(),
+                ..Default::default()
+            },
+        };
+        let zone = record.placement_az.clone();
+        let reach = |details: &[ocw_clock::StatusDetailSeed]| -> Vec<String> {
+            details
+                .iter()
+                .filter(|d| d.name == "reachability")
+                .map(|d| d.status.clone())
+                .collect()
+        };
+        let keep = filters.iter().all(|filter| {
+            let values = filter.values.clone().unwrap_or_default();
+            let have: Vec<String> = match filter.name.as_deref().unwrap_or("") {
+                "availability-zone" => vec![zone.clone()],
+                "instance-state-name" => vec![record.state.as_str().to_string()],
+                "instance-state-code" => vec![record.state.code().to_string()],
+                "system-status.status" => vec![seed.system_status.clone()],
+                "instance-status.status" => vec![seed.instance_status.clone()],
+                "system-status.reachability" => reach(&seed.system_details),
+                "instance-status.reachability" => reach(&seed.instance_details),
+                "event.code" => seed.events.iter().map(|e| e.code.clone()).collect(),
+                "event.description" => seed.events.iter().map(|e| e.description.clone()).collect(),
+                _ => return true,
+            };
+            values.iter().any(|v| have.iter().any(|h| h == v))
+        });
+        if !keep {
+            continue;
+        }
+        let events = (!seed.events.is_empty()).then(|| {
+            seed.events
+                .iter()
+                .enumerate()
+                .map(|(i, e)| InstanceStatusEvent {
+                    instance_event_id: Some(format!(
+                        "instance-event-{:017x}",
+                        (id.len() as u64) << 32 | i as u64 | 0x0a00_0000
+                    )),
+                    code: Some(e.code.clone()),
+                    description: Some(e.description.clone()),
+                    not_after: e.not_after.map(time),
+                    not_before: e.not_before.map(time),
+                    not_before_deadline: None,
+                })
+                .collect()
+        });
+        out.push(InstanceStatus {
+            availability_zone: Some(zone),
+            availability_zone_id: None,
+            outpost_arn: None,
+            operator: None,
+            events,
+            instance_id: Some(id.clone()),
+            instance_state: Some(InstanceState {
+                code: Some(record.state.code()),
+                name: Some(record.state.as_str().to_string()),
+            }),
+            instance_status: Some(summary(&seed.instance_status, &seed.instance_details)),
+            system_status: Some(summary(&seed.system_status, &seed.system_details)),
+            attached_ebs_status: running.then(|| EbsStatusSummary {
+                details: Some(vec![EbsStatusDetails {
+                    impaired_since: None,
+                    name: Some("reachability".to_string()),
+                    status: Some("passed".to_string()),
+                }]),
+                status: Some("ok".to_string()),
+            }),
+            application_status: None,
+            performance_status: None,
+        });
+    }
+    Ok(DescribeInstanceStatusOutput {
+        instance_statuses: Some(out),
+        next_token: None,
+    })
 }
