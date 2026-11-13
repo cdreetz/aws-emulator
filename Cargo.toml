@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "core/ocw-clock",
+    "core/ocw-emulator",
+    "core/ocw-seed",
     "services/service-com-amazonaws-accessanalyzer-accessanalyzer",
     "services/service-com-amazonaws-account-account",
     "services/service-com-amazonaws-accountaccess-awsaccountaccess",
@@ -471,6 +474,8 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 # Workspace-local crates
+ocw-clock = { path = "core/ocw-clock" }
+ocw-seed = { path = "core/ocw-seed" }
 service-com-amazonaws-accessanalyzer-accessanalyzer = { path = "services/service-com-amazonaws-accessanalyzer-accessanalyzer" }
 service-com-amazonaws-account-account = { path = "services/service-com-amazonaws-account-account" }
 service-com-amazonaws-accountaccess-awsaccountaccess = { path = "services/service-com-amazonaws-accountaccess-awsaccountaccess" }

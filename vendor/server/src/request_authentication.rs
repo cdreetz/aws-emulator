@@ -211,7 +211,7 @@ impl RequestAuthenticator for SigV4Authenticator {
             }
             let at = parse_amz_date(&signed.amz_date);
             let valid_until = at.and_then(|at| at.checked_add(Duration::from_secs(secs)));
-            valid_until.is_none_or(|valid_until| valid_until < SystemTime::now())
+            valid_until.is_none_or(|valid_until| valid_until < ocw_clock::real_now())
         });
         let (Some(key_id), false) = (scoped_key_id, expired) else {
             return Err(ACCESS_DENIED);
@@ -590,7 +590,8 @@ fn within_clock_skew(amz_date: &str) -> bool {
     let Some(signed_at) = parse_amz_date(amz_date) else {
         return false;
     };
-    let now = SystemTime::now();
+    // OnCallWorlds patch: the caller signs with the real clock, whatever ours says.
+    let now = ocw_clock::real_now();
     let skew = now
         .duration_since(signed_at)
         .or_else(|_| signed_at.duration_since(now));

@@ -6,6 +6,7 @@ publish = false
 license = "Apache-2.0"
 
 [dependencies]
+ocw-clock = { path = "../../core/ocw-clock" }
 smithy-macros = { path = "../smithy-macros", package = "aws-emulator-smithy-macros", version = "*" }
 aws-smithy-schema-server = { path = "../smithy-schema-server", package = "aws-emulator-smithy-schema-server", version = "*" }
 aws-smithy-schema = "0.2.1"

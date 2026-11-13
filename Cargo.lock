@@ -393,6 +393,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-emulator-ocw"
+version = "0.1.0"
+dependencies = [
+ "aws-emulator-emulator-telemetry",
+ "aws-emulator-engine",
+ "aws-emulator-router",
+ "aws-emulator-server",
+ "ocw-clock",
+ "ocw-seed",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "aws-emulator-router"
 version = "0.1.0"
 dependencies = [
@@ -874,6 +889,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "ocw-clock",
  "parking_lot",
  "percent-encoding",
  "rcgen",
@@ -934,6 +950,7 @@ dependencies = [
  "bytes",
  "http",
  "http-body-util",
+ "ocw-clock",
  "uuid",
 ]
 
@@ -6093,6 +6110,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "ocw-clock"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "ocw-seed"
+version = "0.1.0"
+dependencies = [
+ "aws-emulator-engine",
+ "aws-emulator-server",
+ "aws-smithy-types",
+ "bytes",
+ "http",
+ "ocw-clock",
+ "serde_json",
+ "service-com-amazonaws-autoscaling-autoscaling-2011-01-01",
+ "service-com-amazonaws-cloudwatch-graniteserviceversion20100801",
+ "service-com-amazonaws-cloudwatchlogs-logs-20140328",
+ "service-com-amazonaws-ec2-amazonec2",
+ "service-com-amazonaws-elasticache-amazonelasticachev9",
+ "service-com-amazonaws-rds-amazonrdsv19",
+ "service-common",
 ]
 
 [[package]]
@@ -12262,6 +12306,7 @@ dependencies = [
  "http",
  "jpeg-encoder",
  "md-5 0.10.6",
+ "ocw-clock",
  "pkcs1",
  "pkcs8 0.10.2",
  "roxmltree",
@@ -12608,6 +12653,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnet",
+ "ocw-clock",
  "rand 0.9.5",
  "rcgen",
  "rustls",
@@ -13576,6 +13622,7 @@ dependencies = [
  "hex",
  "http",
  "md-5 0.10.6",
+ "ocw-clock",
  "pkcs1",
  "pkcs8 0.10.2",
  "png 0.18.1",
@@ -17219,6 +17266,7 @@ dependencies = [
  "hex",
  "http",
  "md-5 0.10.6",
+ "ocw-clock",
  "parquet",
  "rusqlite",
  "rustls",
@@ -17605,6 +17653,7 @@ dependencies = [
  "bytes",
  "hex",
  "http",
+ "ocw-clock",
  "quick-xml",
  "serde_json",
  "service-com-amazonaws-cloudwatch-graniteserviceversion20100801",
@@ -20201,6 +20250,7 @@ dependencies = [
  "ipnet",
  "iso8601-duration",
  "jsonata-rs",
+ "ocw-clock",
  "percent-encoding",
  "rand 0.9.5",
  "ring",

@@ -429,6 +429,12 @@ pub async fn run_operation_http<'r, O: Operation>(
 ) -> aws_smithy_runtime_api::http::Response {
     use crate::errors::OperationError;
 
+    // OnCallWorlds patch: a sealed (seeded, read-only) account refuses every mutating
+    // call in the service's own access-denied wording.
+    if let Some(refused) = ocw_refusal::<O>(ctx, req, pre_dispatch) {
+        return refused;
+    }
+
     // The service's wire protocol for the modeled sequence below, selected by
     // `resolve_protocol` (the author's `override_protocol` if any, else the
     // protocol the request is served in). The deserialize and serialize steps drive it as a
@@ -612,6 +618,38 @@ fn resolve_protocol<'r>(
 ///
 /// [`ErrorType`]: emulator_telemetry::ErrorType
 const FRAMEWORK_ERROR_SHAPE_NAME: &str = "FrameworkError";
+
+/// OnCallWorlds patch (PATCHES.md): the read-only gate of a sealed account.
+fn ocw_refusal<O: Operation>(
+    ctx: &OperationContext<'_>,
+    req: &aws_smithy_runtime_api::http::Request,
+    pre_dispatch: crate::PreDispatchProtocol<'_>,
+) -> Option<aws_smithy_runtime_api::http::Response> {
+    ocw_clock::sealed()?;
+    let framing = match pre_dispatch {
+        crate::PreDispatchProtocol::Query { ec2: true } => ocw_clock::Framing::Ec2Query,
+        crate::PreDispatchProtocol::Query { ec2: false } => ocw_clock::Framing::Query,
+        crate::PreDispatchProtocol::RestXml { .. } => ocw_clock::Framing::RestXml,
+        _ => ocw_clock::Framing::Json,
+    };
+    let body = req.body().bytes().unwrap_or_default();
+    let refused = ocw_clock::refusal(
+        ctx.identity().signing_name_static(),
+        O::NAME,
+        framing,
+        req.uri(),
+        body,
+    )?;
+    let error = aws_smithy_schema_server::ProtocolError::Unauthenticated {
+        code: refused.code,
+        message: "",
+    };
+    let chosen = crate::Refused {
+        code: refused.code.to_string(),
+        message: refused.message,
+    };
+    Some(crate::protocol_error_response_with(pre_dispatch, error, Some(chosen)))
+}
 
 #[cfg(test)]
 mod tests {

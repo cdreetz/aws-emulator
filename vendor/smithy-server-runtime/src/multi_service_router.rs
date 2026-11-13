@@ -257,7 +257,13 @@ impl MultiServiceRouter {
         };
         let admitted = refuse_cross_site_browsers(&parts);
         let admitted =
-            admitted.and_then(|()| self.authenticate(svc, wire, op, &rt_req, &parts, &_body));
+            admitted.and_then(|()| {
+                // OnCallWorlds patch: seed setup calls are the account root's, in process.
+                if ocw_clock::seeding() {
+                    return Ok(());
+                }
+                self.authenticate(svc, wire, op, &rt_req, &parts, &_body)
+            });
         if let Err(denied) = admitted {
             let (code, message) = (denied.code, denied.message);
             let err = aws_smithy_schema_server::ProtocolError::Unauthenticated { code, message };

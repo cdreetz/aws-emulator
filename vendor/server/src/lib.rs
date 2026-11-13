@@ -149,7 +149,12 @@ pub fn aws_json_ok_response(
 /// every account/ARN field through [`emulator_account_id`] / [`emulator_arn`] — never a
 /// string literal — and a re-scaffold carries the canonical value into
 /// long-lived tenant repos.
-pub const EMULATOR_ACCOUNT_ID: &str = "000000000000";
+// OnCallWorlds patch: the account every ARN names. A build may name another with
+// `OCW_ACCOUNT_ID=<12 digits>`; upstream's placeholder was 000000000000.
+pub const EMULATOR_ACCOUNT_ID: &str = match option_env!("OCW_ACCOUNT_ID") {
+    Some(account) => account,
+    None => "418295736104",
+};
 
 /// The canonical AWS account id ([`EMULATOR_ACCOUNT_ID`]) every generated emulator
 /// must present. Prefer this accessor over hardcoding the literal so the account

@@ -1,0 +1,13 @@
+[package]
+name = "ocw-clock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# OnCallWorlds patch (see PATCHES.md). Deliberately NOT `[lints] workspace = true`: the
+# clock shim is the one place in the tree that needs `unsafe` (an `extern "C"` function the
+# linker substitutes for `clock_gettime`). Everything else here is safe code.
+
+[dependencies]
+libc = "0.2"
