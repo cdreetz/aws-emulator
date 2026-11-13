@@ -7,6 +7,7 @@ publish = false
 build = "build.rs"
 
 [dependencies]
+ocw-clock = { workspace = true }
 engine = { workspace = true }
 smithy-macros = { workspace = true }
 aws-smithy-schema = { workspace = true }

@@ -153,7 +153,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = ctx;
         // Implement `DescribeAutoScalingInstances` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(DescribeAutoScalingInstancesErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -163,6 +163,50 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("DescribeAutoScalingInstances"))
+        // OnCallWorlds patch: implemented.
+        ocw_describe_auto_scaling_instances(&*self.engine, input)
     }
+}
+
+/// OnCallWorlds patch: `DescribeAutoScalingInstances` (was a 501): every instance of every
+/// group, or the ones named, as the groups hold them.
+fn ocw_describe_auto_scaling_instances<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    input: DescribeAutoScalingInstancesInput,
+) -> Result<DescribeAutoScalingInstancesOutput, DescribeAutoScalingInstancesError> {
+    use crate::scaffolded::Scaffolded;
+    let Some(state) = crate::state::service_state(engine) else {
+        return Err(Scaffolded::validation("the Auto Scaling store is not mounted on this engine"));
+    };
+    let mut store = state.lock();
+    store.materialize_due(engine, ::std::time::SystemTime::now());
+    let wanted = input.instance_ids.unwrap_or_default();
+    let mut rows = Vec::new();
+    for group in store.groups.values() {
+        for instance in &group.instances {
+            if !wanted.is_empty() && !wanted.contains(&instance.instance_id) {
+                continue;
+            }
+            rows.push(AutoScalingInstanceDetails {
+                instance_id: instance.instance_id.clone(),
+                instance_type: instance.instance_type.clone(),
+                auto_scaling_group_name: group.name.clone(),
+                availability_zone: instance.availability_zone.clone(),
+                lifecycle_state: instance.lifecycle_state.clone(),
+                health_status: instance.health_status.to_uppercase(),
+                launch_configuration_name: instance.launch_configuration_name.clone(),
+                launch_template: instance.launch_template.clone(),
+                image_id: instance.image_id.clone(),
+                protected_from_scale_in: instance.protected_from_scale_in,
+                ..Default::default()
+            });
+        }
+    }
+    rows.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    let start = input.next_token.as_deref().and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+    let size = input.max_records.map_or(50, |n| n.clamp(1, 50) as usize);
+    let end = (start + size).min(rows.len());
+    let next_token = (end < rows.len()).then(|| end.to_string());
+    let page = rows.get(start..end).map(<[AutoScalingInstanceDetails]>::to_vec).unwrap_or_default();
+    Ok(DescribeAutoScalingInstancesOutput { auto_scaling_instances: Some(page), next_token })
 }

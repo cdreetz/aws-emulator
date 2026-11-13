@@ -250,7 +250,8 @@ impl DbClusterRecord {
     /// bound to instead: that is the address a client connects to, and a name this machine
     /// does not resolve would be no endpoint at all.
     pub fn endpoint(&self) -> String {
-        if let Some(served) = &self.served_endpoint {
+        // OnCallWorlds patch: a seeded account reports the endpoint AWS would.
+        if let Some(served) = self.served_endpoint.as_ref().filter(|_| !ocw_clock::seeded()) {
             return served.host.clone();
         }
         format!(
@@ -272,6 +273,7 @@ impl DbClusterRecord {
     pub fn published_port(&self) -> i32 {
         self.served_endpoint
             .as_ref()
+            .filter(|_| !ocw_clock::seeded()) // OnCallWorlds patch: report the AWS endpoint, not the local listener
             .map_or(self.port, |served| served.port)
     }
 
@@ -286,7 +288,8 @@ impl DbClusterRecord {
     /// emulator publishes a listener it opened
     /// (`service_common::data_plane_addressing::listener_authority`).
     pub fn reader_endpoint(&self) -> String {
-        if let Some(served) = &self.served_reader_endpoint {
+        // OnCallWorlds patch: a seeded account reports the endpoint AWS would.
+        if let Some(served) = self.served_reader_endpoint.as_ref().filter(|_| !ocw_clock::seeded()) {
             return ::service_common::data_plane_addressing::host_port_authority(
                 &served.host,
                 u16::try_from(served.port).unwrap_or_default(),

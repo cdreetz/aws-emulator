@@ -169,7 +169,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = &self.engine;
         // Implement `ListFargateProfiles` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(ListFargateProfilesErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -179,6 +179,42 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("ListFargateProfiles"))
+        // OnCallWorlds patch: implemented.
+        ocw_list_fargate_profiles(&*self.engine, crate::state::request_region(ctx.parts()), input)
     }
+}
+
+/// OnCallWorlds patch: `ListFargateProfiles` (was a 501): the names of a cluster's Fargate
+/// profiles, which `CreateFargateProfile` stores.
+fn ocw_list_fargate_profiles<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    region: String,
+    input: ListFargateProfilesInput,
+) -> Result<ListFargateProfilesOutput, ListFargateProfilesError> {
+    let Some(store) = crate::state::service_state(engine) else {
+        return Err(crate::scaffolded::Scaffolded::not_implemented("ListFargateProfiles"));
+    };
+    let mut guard = store.lock();
+    guard.materialize_due_transitions(::std::time::SystemTime::now());
+    if !guard.clusters.contains_key(&(region.clone(), input.cluster_name.clone())) {
+        return Err(ListFargateProfilesErrorModeled::ResourceNotFoundException(
+            crate::state::resource_not_found(),
+        )
+        .into());
+    }
+    let mut names: Vec<String> = guard
+        .fargate_profiles
+        .keys()
+        .filter(|(r, cluster, _)| *r == region && *cluster == input.cluster_name)
+        .map(|(_, _, name)| name.clone())
+        .collect();
+    names.sort();
+    let start = input.next_token.as_deref().and_then(|t| t.parse::<usize>().ok()).unwrap_or(0);
+    let size = input.max_results.map_or(100, |n| n.clamp(1, 100) as usize);
+    let end = (start + size).min(names.len());
+    let next_token = (end < names.len()).then(|| end.to_string());
+    Ok(ListFargateProfilesOutput {
+        fargate_profile_names: Some(names.get(start..end).map(<[String]>::to_vec).unwrap_or_default()),
+        next_token,
+    })
 }

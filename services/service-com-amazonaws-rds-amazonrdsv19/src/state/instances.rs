@@ -229,7 +229,9 @@ impl DbInstanceRecord {
     /// is bound to instead: that is the address a client connects to, and a name this
     /// machine does not resolve would be no endpoint at all.
     pub fn endpoint_address(&self) -> String {
-        if let Some(served) = &self.served_endpoint {
+        // OnCallWorlds patch: a seeded account reports the endpoint AWS would, not the
+        // local listener this emulator opened for the engine.
+        if let Some(served) = self.served_endpoint.as_ref().filter(|_| !ocw_clock::seeded()) {
             return served.host.clone();
         }
         format!(
@@ -253,6 +255,7 @@ impl DbInstanceRecord {
     pub fn published_port(&self) -> i32 {
         self.served_endpoint
             .as_ref()
+            .filter(|_| !ocw_clock::seeded()) // OnCallWorlds patch: report the AWS endpoint, not the local listener
             .map_or(self.endpoint_port, |served| served.port)
     }
 

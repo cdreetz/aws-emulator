@@ -163,7 +163,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = ctx;
         // Implement `DescribeScheduledActions` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(DescribeScheduledActionsErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -173,6 +173,25 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("DescribeScheduledActions"))
+        // OnCallWorlds patch: implemented.
+        ocw_describe_scheduled_actions(&*self.engine, input)
     }
+}
+
+/// OnCallWorlds patch: `DescribeScheduledActions` (was a 501). This emulator stores no
+/// scheduled action (`PutScheduledUpdateGroupAction` is not implemented), so every group
+/// has none; a group that does not exist is refused as AWS refuses it.
+fn ocw_describe_scheduled_actions<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    input: DescribeScheduledActionsInput,
+) -> Result<DescribeScheduledActionsOutput, DescribeScheduledActionsError> {
+    use crate::scaffolded::Scaffolded;
+    if let (Some(name), Some(state)) = (input.auto_scaling_group_name.as_deref(), crate::state::service_state(engine)) {
+        if !state.lock().groups.contains_key(name) {
+            return Err(Scaffolded::validation(format!(
+                "AutoScalingGroup name not found - AutoScalingGroup {name} not found"
+            )));
+        }
+    }
+    Ok(DescribeScheduledActionsOutput { scheduled_update_group_actions: Some(Vec::new()), next_token: None })
 }

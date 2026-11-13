@@ -159,7 +159,7 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
     ) -> Result<Self::Output, Self::Error> {
         // The engine is reachable from `&self` (constructor-injected); `ctx` carries
         // request metadata. Both are bound here so an implementer has them in scope.
-        let _ = (&input, ctx, &self.engine);
+        let _ = ctx;
         // Implement `DescribeWarmPool` here, then delete the SCAFFOLDED marker at the top of
         // this file. Return modeled failures as
         // `Err(DescribeWarmPoolErrorModeled::Variant(..).into())` — the `From` impl above lifts it.
@@ -169,6 +169,25 @@ impl<Eng: ::std::marker::Send + ::std::marker::Sync + 'static> smithy_server_run
         // `ValidationException`. Do NOT answer 501 for it: 501 means "not written yet",
         // not "bad request". Modeled constraints are already refused BEFORE this
         // handler runs, so reaching here means the input satisfies every one of them.
-        Err(crate::scaffolded::Scaffolded::not_implemented("DescribeWarmPool"))
+        // OnCallWorlds patch: implemented.
+        ocw_describe_warm_pool(&*self.engine, input)
     }
+}
+
+/// OnCallWorlds patch: `DescribeWarmPool` (was a 501). This emulator stores no warm pool
+/// (`PutWarmPool` is not implemented), so a group's answer is no configuration and no
+/// instances; a group that does not exist is refused.
+fn ocw_describe_warm_pool<Eng: Send + Sync + 'static>(
+    engine: &Eng,
+    input: DescribeWarmPoolInput,
+) -> Result<DescribeWarmPoolOutput, DescribeWarmPoolError> {
+    use crate::scaffolded::Scaffolded;
+    let name = input.auto_scaling_group_name;
+    let known = crate::state::service_state(engine).is_some_and(|state| state.lock().groups.contains_key(&name));
+    if !known {
+        return Err(Scaffolded::validation(format!(
+            "AutoScalingGroup name not found - AutoScalingGroup {name} not found"
+        )));
+    }
+    Ok(DescribeWarmPoolOutput { warm_pool_configuration: None, instances: Some(Vec::new()), next_token: None })
 }
