@@ -191,6 +191,9 @@ def build(credentials_out: str, big: bool) -> dict:
         "AutoScalingGroupName": "eks-general-7ac4b1f0", "MinSize": 0, "MaxSize": 6, "DesiredCapacity": 0,
         "LaunchTemplate": {"LaunchTemplateName": "eks-general", "Version": "$Latest"},
         "VPCZoneIdentifier": ",".join(SUBNETS.values())}, at=born + 5100)
+    s.call("autoscaling", "AttachInstances", {"AutoScalingGroupName": "eks-general-7ac4b1f0",
+                                              "InstanceIds": [NODES[0][0], NODES[1][0]]},
+           at=NOW - 16 * DAY)
     s.call("iam", "CreateRole", {"RoleName": "larch-eks-cluster", "AssumeRolePolicyDocument": json.dumps({
         "Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "eks.amazonaws.com"},
                                                 "Action": "sts:AssumeRole"}]})}, at=born + 5150)

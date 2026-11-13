@@ -43,6 +43,8 @@ AWS_DEFAULT_REGION=us-east-1
 | 14 | **Instance type offerings.** Upstream withholds every current-generation type from a Region's last zone (`us-east-1c`), so `RunInstances` of an `m6i.2xlarge` node there is `Unsupported`. A world's cluster runs its node group in all three zones, so in a seeded process every zone offers every type; a capacity shortfall is stated as a seeded Auto Scaling activity instead. | `EC2 instance_ids_and_instance_types.rs` (1 hook) |
 | 15 | **Auto Scaling `AttachInstances`** is implemented (was a 501): each instance must be one of the account's running EC2 instances; it joins the group `InService`/`Healthy`, `DesiredCapacity` grows by the number attached (refused past `MaxSize`), and each attachment is a `Successful` activity. | `autoscaling attach_instances.rs` |
 | 16 | **Lifecycles across setup calls.** The clock jumps days between setup calls, but EC2 (`pending`→`running`, 500 ms) and RDS (`creating`→`available`, 300 ms) move a resource's state on the *monotonic* clock, which the shift does not touch. The loader applies EC2's due transitions before every setup call and waits out the real delay before an operation that reads such a state (`AttachInstances`, `RegisterTargets`, `CreateNodegroup`, `AssociateAddress`, ...; `CreateDBInstanceReadReplica`, `ModifyDBInstance`, `RebootDBInstance`, ...) and once before sealing. ElastiCache, EKS, DynamoDB and ACM lifecycles run on the wall clock and follow seeded time as they are. | `core/ocw-seed` |
+| 17 | **RDS endpoints.** Upstream serves some engines on a local listener and reports *its* address as the instance's `Endpoint.Address` (`127.0.0.1`). A seeded account reports what AWS would — `<id>.<token>.<region>.rds.amazonaws.com`, the configured port, and the `cluster-`/`cluster-ro-` names for clusters — so the Route 53 records a world points at its databases resolve to what `describe-db-instances` says. | `RDS state/instances.rs`, `state/clusters.rs` (1 line each) |
+| 18 | **More reads implemented** (were 501s): EC2 `DescribeTags` (instances, VPCs, subnets, security groups, route tables, gateways, interfaces, endpoints, launch templates, addresses, images; filters `key`, `value`, `resource-id`, `resource-type`, `tag:<key>`; paging), Auto Scaling `DescribeAutoScalingInstances`, `DescribeScheduledActions` and `DescribeWarmPool` (this emulator stores neither, so both answer none, and refuse an unknown group), EKS `ListFargateProfiles`. | one op file each |
 
 Files touched outside the new crates (core/ocw-clock, core/ocw-seed, core/ocw-emulator): 19, all hooks of a few lines, each marked
 `OnCallWorlds patch`. `git diff 32b3cf39b -- . ':!core/ocw-*' ':!oncallworlds' ':!PATCHES.md'`
@@ -115,13 +117,16 @@ lines) and reports boot time and RSS.
 
 ### Results
 
-Fixture (40 setup calls, 3,600 datapoints, alarms with history, target health, 5 CloudTrail
+Fixture (41 setup calls, 3,600 datapoints, alarms with history, target health, 5 CloudTrail
 records and their 4 trail log files, 30 log events, RDS/ElastiCache events, a failed scaling
 activity, status checks): boots in ~1.4 s, 366 MB RSS.
 
 | binary | result |
 |---|---|
-| 04:41 (seed loader final) | **178/184**: the 6 failures are the gaps the next build closes (RDS `Endpoint.Address` reported as the local data-plane listener `127.0.0.1`; `ec2 describe-tags`, `autoscaling describe-auto-scaling-instances / describe-scheduled-actions / describe-warm-pool`, `eks list-fargate-profiles` scaffolded) |
+| 2026-11-13 04:41 | 178/184: RDS `Endpoint.Address` was the local listener; `ec2 describe-tags`, `autoscaling describe-auto-scaling-instances / describe-scheduled-actions / describe-warm-pool`, `eks list-fargate-profiles` were scaffolded |
+| 2026-11-13 05:29 (rows 17-18) | **192/192** |
+
+The binary is 1.39 GB (1.01 GB stripped).
 
 OnCallWorlds' six world accounts (dev-loop seeds, 245-275 setup calls each): all boot with
 0 failing setup calls in 1.5-1.9 s at ~390 MB RSS; `sts get-caller-identity` returns the

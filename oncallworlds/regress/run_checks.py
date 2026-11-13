@@ -231,6 +231,27 @@ def main() -> int:
       ["autoscaling", "describe-scaling-activities", "--auto-scaling-group-name", "eks-general-7ac4b1f0"],
       lambda d: any(x["StatusCode"] == "Failed" and "sufficient m6i.2xlarge capacity" in x.get("StatusMessage", x["Description"])
                     for x in d["Activities"]))
+    c("autoscaling describe-auto-scaling-instances: attached nodes InService",
+      ["autoscaling", "describe-auto-scaling-instances"],
+      lambda d: sorted((i["InstanceId"], i["LifecycleState"], i["AutoScalingGroupName"]) for i in d["AutoScalingInstances"])
+      == sorted((n[0], "InService", "eks-general-7ac4b1f0") for n in NODES[:2]))
+    c("autoscaling describe-auto-scaling-groups: attachment raised desired capacity",
+      ["autoscaling", "describe-auto-scaling-groups", "--auto-scaling-group-names", "eks-general-7ac4b1f0"],
+      lambda d: d["AutoScalingGroups"][0]["DesiredCapacity"] == 2 and len(d["AutoScalingGroups"][0]["Instances"]) == 2)
+    c("autoscaling describe-scaling-activities: the attachments", ["autoscaling", "describe-scaling-activities",
+                                                                   "--auto-scaling-group-name", "eks-general-7ac4b1f0"],
+      lambda d: sum(1 for x in d["Activities"] if x["Description"].startswith("Attaching an existing EC2 instance")) == 2)
+    c("autoscaling describe-scheduled-actions: none", ["autoscaling", "describe-scheduled-actions",
+                                                       "--auto-scaling-group-name", "eks-general-7ac4b1f0"],
+      lambda d: d["ScheduledUpdateGroupActions"] == [])
+    c("autoscaling describe-warm-pool: none", ["autoscaling", "describe-warm-pool", "--auto-scaling-group-name",
+                                               "eks-general-7ac4b1f0"], lambda d: d.get("WarmPoolConfiguration") is None and d["Instances"] == [])
+    c("ec2 describe-tags: instance Name tag", ["ec2", "describe-tags", "--filters", f"Name=resource-id,Values={NODES[0][0]}"],
+      lambda d: {"Key": "Name", "ResourceId": NODES[0][0], "ResourceType": "instance", "Value": "larch-prod-general"} in d["Tags"])
+    c("ec2 describe-tags: by key across resources", ["ec2", "describe-tags", "--filters", "Name=key,Values=Name"],
+      lambda d: {t["ResourceId"] for t in d["Tags"]} >= {VPC, *[n[0] for n in NODES]})
+    c("eks list-fargate-profiles: none", ["eks", "list-fargate-profiles", "--cluster-name", "larch-prod"],
+      lambda d: d["fargateProfileNames"] == [])
     c("eks list-clusters", ["eks", "list-clusters"], lambda d: d["clusters"] == ["larch-prod"])
     c("eks describe-cluster", ["eks", "describe-cluster", "--name", "larch-prod"], lambda d: d["cluster"]["name"] == "larch-prod")
     c("eks list-nodegroups", ["eks", "list-nodegroups", "--cluster-name", "larch-prod"], lambda d: "nodegroups" in d)
