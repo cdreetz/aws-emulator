@@ -1,0 +1,27 @@
+[package]
+name = "ocw-seed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# OnCallWorlds patch (see PATCHES.md): load an `ocw-aws-seed/1` file at startup.
+
+[lints]
+workspace = true
+
+[dependencies]
+ocw-clock = { workspace = true }
+engine = { workspace = true }
+emulator-server = { workspace = true }
+aws-smithy-types = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+service-common = { path = "../../services/common" }
+service-com-amazonaws-cloudwatch-graniteserviceversion20100801 = { workspace = true }
+service-com-amazonaws-cloudwatchlogs-logs-20140328 = { workspace = true }
+service-com-amazonaws-rds-amazonrdsv19 = { workspace = true }
+service-com-amazonaws-elasticache-amazonelasticachev9 = { workspace = true }
+service-com-amazonaws-autoscaling-autoscaling-2011-01-01 = { workspace = true }
+service-com-amazonaws-ec2-amazonec2 = { workspace = true }

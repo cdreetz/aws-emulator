@@ -998,6 +998,8 @@ pub struct ManagementEvent {
     pub event_category: String,
     /// What the serving service reported.
     pub call: ServedApiCall,
+    /// OnCallWorlds patch: a record loaded from a seed, reported exactly as given.
+    pub verbatim: Option<serde_json::Value>,
 }
 
 impl ManagementEvent {
@@ -1016,6 +1018,9 @@ impl ManagementEvent {
     /// (the caller's source IP, a principal id for an unknown credential) is left out
     /// rather than filled with a made-up value.
     pub fn to_cloudtrail_event_json(&self) -> serde_json::Value {
+        if let Some(record) = &self.verbatim {
+            return record.clone();
+        }
         let call = &self.call;
         let mut identity = serde_json::Map::new();
         identity.insert(
@@ -1360,6 +1365,11 @@ impl ManagementEventLog {
         at: SystemTime,
         request_id: String,
     ) -> String {
+        // OnCallWorlds patch: a seeded account's history is the seed's; the emulator's
+        // own partial records of the calls it serves would contradict it.
+        if ocw_clock::seeded() {
+            return mint_uuid();
+        }
         self.prune(at);
         call.request_parameters = within_record_limit(call.request_parameters);
         call.response_elements = call.response_elements.map(within_record_limit);
@@ -1371,6 +1381,7 @@ impl ManagementEventLog {
             event_time: at,
             event_category: EVENT_CATEGORY_MANAGEMENT.to_string(),
             call,
+            verbatim: None,
         };
         let event_id = event.event_id.clone();
         self.events.push_back(event);
@@ -1379,6 +1390,29 @@ impl ManagementEventLog {
 
     /// Every record, oldest first. The iterator is double-ended, so a reader that
     /// reports the most recent event first walks it in reverse.
+    /// OnCallWorlds patch: add one CloudTrail record from a seed. `call` carries what a
+    /// lookup filters on; `record` is what it reports. Not pruned: retention is the
+    /// lookup's own window, read against the (shifted) clock.
+    pub fn insert_seeded(
+        &mut self,
+        record: serde_json::Value,
+        call: ServedApiCall,
+        at: SystemTime,
+        event_id: String,
+        request_id: String,
+    ) {
+        self.next_seq = self.next_seq.saturating_add(1);
+        self.events.push_back(ManagementEvent {
+            seq: self.next_seq,
+            event_id,
+            request_id,
+            event_time: at,
+            event_category: EVENT_CATEGORY_MANAGEMENT.to_string(),
+            call,
+            verbatim: Some(record),
+        });
+    }
+
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &ManagementEvent> {
         self.events.iter()
     }
@@ -1405,6 +1439,9 @@ impl ManagementEventLog {
         at: SystemTime,
         request_id: String,
     ) -> Option<crate::api_call_events::DeliveredApiCall> {
+        if ocw_clock::seeded() {
+            return None;
+        }
         let read_only = call.read_only;
         let region = call.aws_region.clone();
         let account_id = call.account_id.clone();

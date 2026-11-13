@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+ocw-clock = { workspace = true }
 # `iam_client`: the in-process IAM client a service resolving a caller-supplied IAM
 # entity asks, built once here instead of per service.
 aws-sdk-iam = { version = "1", default-features = false }

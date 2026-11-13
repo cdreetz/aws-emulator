@@ -1,0 +1,29 @@
+[package]
+name = "aws-emulator-ocw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+# OnCallWorlds patch (PATCHES.md): the emulator binary with the seed loader and the clock
+# shim. A package of its own, beside `core/router` (which this branch leaves as upstream
+# ships it), so changing the seed loader rebuilds this binary and not the router library.
+
+[[bin]]
+name = "aws-emulator-ocw"
+path = "src/main.rs"
+
+[dependencies]
+aws-emulator-router = { path = "../router" }
+engine = { workspace = true }
+ocw-clock = { workspace = true }
+ocw-seed = { workspace = true }
+emulator-server = { workspace = true }
+emulator-telemetry = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
